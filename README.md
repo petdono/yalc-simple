@@ -1,8 +1,10 @@
 # YARG-LIFX
 
 A small Windows desktop app that listens for YARG's local UDP lighting
-datastream and controls LIFX lights using the LAN protocol. No cloud account,
-token, web server, or database is involved.
+datastream and controls LIFX lights using the LAN protocol. The app is
+entirely made with AI but has been tested on all my LIFX lights to
+work pretty well. This app is meant to replace YALCY since its LIFX
+support is seriously lacking, specifically with zones.
 
 ## Run from source
 
