@@ -1,9 +1,16 @@
-# YARG-LIFX
+# Yet Another Lighting Controller, Simplified
 datastream and controls LIFX & Govee lights using the LAN protocol. The app is
 entirely made with AI but has been tested on all my LIFX lights to
 work pretty well, as well as being tested with a Govee UDP emulator script. 
 This app is meant to replace YALCY since its LIFX support is seriously lacking,
 specifically the requirement for each zone to either be red, green, or blue.
+
+## Supported Devices
+- Any LIFX light ([Models](https://www.lifx.com/collections/all))
+  - Must be connected to the same network and have full RGB support. Tested and functional with LIFX 15" Ceiling.
+  - Polychrome zones are not supported, whole light only.
+- A Govee light that has LAN support ([Models](https://app-h5.govee.com/user-manual/wlan-guide))
+  - If the device isn't listed there, your model is either cloud-only or Bluetooth only. Neither are supported.
 
 ## Run from source
 
