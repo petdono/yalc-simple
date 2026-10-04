@@ -58,6 +58,7 @@ class LifxController:
         self._lan = TimedDiscoveryLAN(config.LIFX_DISCOVERY_TIMEOUT)
         self._lights: list[Any] = []
         self._labels: dict[str, str] = {}
+        self._ips: dict[str, str] = {}
         self._last_sent: dict[str, tuple[bool, tuple[int, int, int, int] | None]] = {}
         self._offline: set[str] = set()
         self._commands: queue.Queue[LightingIntent | None] = queue.Queue(maxsize=1)
@@ -100,6 +101,19 @@ class LifxController:
     def wait_until_applied(self, timeout: float) -> bool:
         return self._applied.wait(timeout)
 
+    @property
+    def discovered_devices(self) -> list[tuple[str, str]]:
+        devices: list[tuple[str, str]] = []
+        for light in self._lights:
+            light_id = self._light_id(light)
+            devices.append(
+                (
+                    self._labels.get(light_id, "Unknown label"),
+                    self._ips.get(light_id, "Unknown IP"),
+                )
+            )
+        return devices
+
     def close(self) -> None:
         self._stop.set()
         try:
@@ -131,6 +145,7 @@ class LifxController:
         previous_ids = {self._light_id(light) for light in self._lights}
         lights: list[Any] = []
         labels: dict[str, str] = {}
+        ips: dict[str, str] = {}
         include = {value.casefold() for value in config.INCLUDE_LIGHTS}
 
         for light in discovered:
@@ -153,6 +168,7 @@ class LifxController:
 
             lights.append(light)
             labels[light_id] = label
+            ips[light_id] = ip_address
 
         current_ids = {self._light_id(light) for light in lights}
         self._offline.update(previous_ids - current_ids)
@@ -162,6 +178,7 @@ class LifxController:
 
         self._lights = lights
         self._labels = labels
+        self._ips = ips
         if not lights:
             logger.warning("No included LIFX lights found")
 

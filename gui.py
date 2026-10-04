@@ -40,6 +40,9 @@ def _current_settings() -> dict[str, Any]:
         "lifx_discovery_timeout": config.LIFX_DISCOVERY_TIMEOUT,
         "lifx_rediscovery_interval": config.LIFX_REDISCOVERY_INTERVAL,
         "brightness_multiplier": config.BRIGHTNESS_MULTIPLIER,
+        "govee_enabled": config.GOVEE_ENABLED,
+        "govee_discovery_timeout": config.GOVEE_DISCOVERY_TIMEOUT,
+        "govee_include_devices": list(config.GOVEE_INCLUDE_DEVICES),
         "color_transition_ms": config.COLOR_TRANSITION_MS,
         "include_lights": list(config.INCLUDE_LIGHTS),
         "debug_logging": config.DEBUG_LOGGING,
@@ -59,6 +62,13 @@ def _apply_settings(settings: dict[str, Any]) -> None:
     brightness = float(
         settings.get("brightness_multiplier", config.BRIGHTNESS_MULTIPLIER)
     )
+    govee_enabled = settings.get("govee_enabled", config.GOVEE_ENABLED)
+    govee_discovery_timeout = float(
+        settings.get("govee_discovery_timeout", config.GOVEE_DISCOVERY_TIMEOUT)
+    )
+    govee_include_devices = settings.get(
+        "govee_include_devices", list(config.GOVEE_INCLUDE_DEVICES)
+    )
     transition = int(
         settings.get("color_transition_ms", config.COLOR_TRANSITION_MS)
     )
@@ -73,12 +83,20 @@ def _apply_settings(settings: dict[str, Any]) -> None:
         raise ValueError("Rediscovery interval must be between 5 and 3600 seconds.")
     if not 0 <= brightness <= 1:
         raise ValueError("Brightness multiplier must be between 0 and 1.")
+    if not isinstance(govee_enabled, bool):
+        raise ValueError("Govee enabled setting must be true or false.")
+    if not 0.1 <= govee_discovery_timeout <= 30:
+        raise ValueError("Govee discovery timeout must be between 0.1 and 30 seconds.")
     if not 0 <= transition <= 60000:
         raise ValueError("Color transition must be between 0 and 60000 milliseconds.")
     if not isinstance(include_lights, list) or any(
         not isinstance(item, str) for item in include_lights
     ):
         raise ValueError("Included lights must be a list of labels or IP addresses.")
+    if not isinstance(govee_include_devices, list) or any(
+        not isinstance(item, str) for item in govee_include_devices
+    ):
+        raise ValueError("Included Govee devices must be a list of IPs, IDs, or SKUs.")
     if not isinstance(debug_logging, bool):
         raise ValueError("Debug logging setting must be true or false.")
 
@@ -86,6 +104,11 @@ def _apply_settings(settings: dict[str, Any]) -> None:
     config.LIFX_DISCOVERY_TIMEOUT = discovery_timeout
     config.LIFX_REDISCOVERY_INTERVAL = rediscovery_interval
     config.BRIGHTNESS_MULTIPLIER = brightness
+    config.GOVEE_ENABLED = govee_enabled
+    config.GOVEE_DISCOVERY_TIMEOUT = govee_discovery_timeout
+    config.GOVEE_INCLUDE_DEVICES = tuple(
+        item.strip() for item in govee_include_devices if item.strip()
+    )
     config.COLOR_TRANSITION_MS = transition
     config.INCLUDE_LIGHTS = tuple(item.strip() for item in include_lights if item.strip())
     config.DEBUG_LOGGING = debug_logging
@@ -127,6 +150,13 @@ class YargLifxWindow:
             value=str(config.LIFX_REDISCOVERY_INTERVAL)
         )
         self.brightness = tk.StringVar(value=str(config.BRIGHTNESS_MULTIPLIER))
+        self.govee_enabled = tk.BooleanVar(value=config.GOVEE_ENABLED)
+        self.govee_discovery_timeout = tk.StringVar(
+            value=str(config.GOVEE_DISCOVERY_TIMEOUT)
+        )
+        self.govee_include_devices = tk.StringVar(
+            value=", ".join(config.GOVEE_INCLUDE_DEVICES)
+        )
         self.transition = tk.StringVar(value=str(config.COLOR_TRANSITION_MS))
         self.include_lights = tk.StringVar(value=", ".join(config.INCLUDE_LIGHTS))
         self.debug = tk.BooleanVar(value=config.DEBUG_LOGGING)
@@ -157,6 +187,8 @@ class YargLifxWindow:
             ("LIFX discovery timeout (s)", self.discovery_timeout),
             ("Rediscover lights every (s)", self.rediscovery_interval),
             ("Brightness multiplier (0-1)", self.brightness),
+            ("Govee discovery timeout (s)", self.govee_discovery_timeout),
+            ("Govee IPs/device IDs/SKUs (comma-separated; blank = all)", self.govee_include_devices),
             ("Color transition (ms)", self.transition),
             ("Include light labels/IPs (comma-separated; blank = all)", self.include_lights),
         ]
@@ -168,10 +200,15 @@ class YargLifxWindow:
             entry.grid(row=row, column=1, sticky=tk.EW, pady=3)
             self._config_widgets.append(entry)
 
+        govee_check = ttk.Checkbutton(
+            config_frame, text="Enable Govee LAN lights", variable=self.govee_enabled
+        )
+        govee_check.grid(row=len(fields), column=0, columnspan=2, sticky=tk.W, pady=2)
+        self._config_widgets.append(govee_check)
         debug_check = ttk.Checkbutton(
             config_frame, text="Show YARG lighting event logs", variable=self.debug
         )
-        debug_check.grid(row=len(fields), column=0, columnspan=2, sticky=tk.W, pady=4)
+        debug_check.grid(row=len(fields) + 1, column=0, columnspan=2, sticky=tk.W, pady=2)
         self._config_widgets.append(debug_check)
 
         controls = ttk.Frame(main)
@@ -227,6 +264,13 @@ class YargLifxWindow:
                 "lifx_discovery_timeout": self.discovery_timeout.get(),
                 "lifx_rediscovery_interval": self.rediscovery_interval.get(),
                 "brightness_multiplier": self.brightness.get(),
+                "govee_enabled": self.govee_enabled.get(),
+                "govee_discovery_timeout": self.govee_discovery_timeout.get(),
+                "govee_include_devices": [
+                    item.strip()
+                    for item in self.govee_include_devices.get().split(",")
+                    if item.strip()
+                ],
                 "color_transition_ms": self.transition.get(),
                 "include_lights": [
                     item.strip()

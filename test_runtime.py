@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import config
-from runtime import YargBridge
+from runtime import LightingOutputs, YargBridge
 from yarg import LightingIntent
 
 
@@ -23,6 +23,10 @@ class FakeController:
 
     def close(self) -> None:
         self.closed.set()
+
+    @property
+    def discovered_devices(self) -> list[tuple[str, str]]:
+        return [("Mock", "192.0.2.1")]
 
 
 def make_packet() -> bytes:
@@ -43,7 +47,7 @@ class BridgeTests(unittest.TestCase):
         controller = FakeController()
         with (
             patch.object(config, "YARG_UDP_PORT", port),
-            patch("runtime.LifxController", return_value=controller),
+            patch("runtime.LightingOutputs", return_value=controller),
         ):
             bridge = YargBridge()
             bridge.start()
@@ -59,6 +63,25 @@ class BridgeTests(unittest.TestCase):
 
         self.assertTrue(controller.closed.wait(1))
         self.assertFalse(bridge.running)
+
+    def test_shared_lighting_intent_is_sent_to_both_backends(self) -> None:
+        lifx = FakeController()
+        govee = FakeController()
+        with (
+            patch.object(config, "GOVEE_ENABLED", True),
+            patch("runtime.LifxController", return_value=lifx),
+            patch("runtime.GoveeController", return_value=govee),
+        ):
+            outputs = LightingOutputs()
+            outputs.start()
+            intent = LightingIntent("PURPLE", transition_ms=300)
+            outputs.submit(intent)
+            self.assertEqual(lifx.intents.get(timeout=1), intent)
+            self.assertEqual(govee.intents.get(timeout=1), intent)
+            outputs.close()
+
+        self.assertTrue(lifx.closed.is_set())
+        self.assertTrue(govee.closed.is_set())
 
 
 if __name__ == "__main__":
