@@ -10,6 +10,7 @@ import time
 import config
 from govee import GoveeController
 from lifx import LifxController
+from tuya import TuyaController
 from yarg import (
     LightingIntent,
     describe_changes,
@@ -22,14 +23,19 @@ class LightingOutputs:
     """Fan out each common YARG lighting intent to the enabled brands."""
 
     def __init__(self) -> None:
-        self.lifx = LifxController()
+        self.lifx = LifxController() if config.LIFX_ENABLED else None
         self.govee = GoveeController() if config.GOVEE_ENABLED else None
-        self._backends: list[LifxController | GoveeController] = []
+        self.tuya = TuyaController() if config.TUYA_ENABLED else None
+        self._backends: list[LifxController | GoveeController | TuyaController] = []
 
     def start(self) -> None:
-        candidates: list[LifxController | GoveeController] = [self.lifx]
+        candidates: list[LifxController | GoveeController | TuyaController] = []
+        if self.lifx is not None:
+            candidates.append(self.lifx)
         if self.govee is not None:
             candidates.append(self.govee)
+        if self.tuya is not None:
+            candidates.append(self.tuya)
         for backend in candidates:
             try:
                 backend.start()
@@ -44,6 +50,82 @@ class LightingOutputs:
                     )
         self._log_discovered_lights()
 
+    def scan(self) -> None:
+        if self.lifx is not None:
+            self.lifx.scan()
+        if self.govee is not None:
+            self.govee.scan()
+        if self.tuya is not None:
+            self.tuya.scan()
+        self._log_discovered_lights()
+
+    def apply_filters(self) -> None:
+        if self.lifx is not None:
+            self.lifx.apply_filters()
+        if self.govee is not None:
+            self.govee.apply_filters()
+        if self.tuya is not None:
+            self.tuya.apply_filters()
+        self._log_discovered_lights()
+
+    def discovered_devices(self) -> list[tuple[str, str, str]]:
+        devices: list[tuple[str, str, str]] = []
+        for provider, backend in (
+            ("LIFX", self.lifx),
+            ("Govee", self.govee),
+            ("Tuya", self.tuya),
+        ):
+            if backend is not None:
+                devices.extend(
+                    (provider, label, ip_address)
+                    for label, ip_address in backend.discovered_devices
+                )
+        return devices
+
+    def all_discovered_devices(self) -> list[tuple[str, str, str]]:
+        devices: list[tuple[str, str, str]] = []
+        for provider, backend in (
+            ("LIFX", self.lifx),
+            ("Govee", self.govee),
+            ("Tuya", self.tuya),
+        ):
+            if backend is not None:
+                devices.extend(
+                    (provider, label, ip_address)
+                    for label, ip_address in backend.all_discovered_devices
+                )
+        return devices
+
+    def identify(self, provider: str, selector: str) -> None:
+        backend: LifxController | GoveeController | TuyaController | None = {
+            "LIFX": self.lifx,
+            "Govee": self.govee,
+            "Tuya": self.tuya,
+        }.get(provider)
+        if backend is None:
+            raise RuntimeError(f"{provider} lighting output is disabled")
+        backend.identify(selector)
+
+    def test_light_color(self, provider: str, selector: str, color: str) -> None:
+        backend: LifxController | GoveeController | TuyaController | None = {
+            "LIFX": self.lifx,
+            "Govee": self.govee,
+            "Tuya": self.tuya,
+        }.get(provider)
+        if backend is None:
+            raise RuntimeError(f"{provider} lighting output is disabled")
+        backend.test_light_color(selector, color)
+
+    def rate_limit_key(self, provider: str, selector: str) -> str:
+        backend: LifxController | GoveeController | TuyaController | None = {
+            "lifx": self.lifx,
+            "govee": self.govee,
+            "tuya": self.tuya,
+        }.get(provider.casefold())
+        if backend is None:
+            raise ValueError(f"{provider} lighting output is disabled")
+        return backend.rate_limit_key(selector)
+
     def submit(self, intent: LightingIntent) -> None:
         for backend in self._backends:
             try:
@@ -52,6 +134,8 @@ class LightingOutputs:
                 logging.exception("Could not submit YARG state to %s", type(backend).__name__)
 
     def wait_until_applied(self, timeout: float) -> bool:
+        if not self._backends:
+            return False
         deadline = time.monotonic() + timeout
         applied = True
         for backend in self._backends:
@@ -72,9 +156,14 @@ class LightingOutputs:
         self._backends.clear()
 
     def _log_discovered_lights(self) -> None:
-        lifx_devices = self.lifx.discovered_devices
+        lifx_devices = (
+            self.lifx.discovered_devices if self.lifx is not None else []
+        )
         govee_devices = (
             self.govee.discovered_devices if self.govee is not None else []
+        )
+        tuya_devices = (
+            self.tuya.discovered_devices if self.tuya is not None else []
         )
         logging.info("Discovered lights:")
         logging.info("LIFX")
@@ -83,15 +172,22 @@ class LightingOutputs:
         logging.info("Govee%s", "" if self.govee is not None else " (disabled)")
         for label, ip_address in govee_devices:
             logging.info("  %s - %s", label, ip_address)
-        logging.info("%d lights ready.", len(lifx_devices) + len(govee_devices))
+        logging.info("Smart Life / Tuya%s", "" if self.tuya is not None else " (disabled)")
+        for label, ip_address in tuya_devices:
+            logging.info("  %s - %s", label, ip_address)
+        logging.info(
+            "%d lights ready.",
+            len(lifx_devices) + len(govee_devices) + len(tuya_devices),
+        )
 
 
 class YargBridge:
-    def __init__(self) -> None:
+    def __init__(self, lighting_outputs: LightingOutputs | None = None) -> None:
         self._stop = threading.Event()
         self._ready = threading.Event()
         self._thread: threading.Thread | None = None
-        self._controller: LightingOutputs | None = None
+        self._provided_outputs = lighting_outputs
+        self._controller: LightingOutputs | None = lighting_outputs
         self._controller_lock = threading.Lock()
 
     @property
@@ -101,6 +197,11 @@ class YargBridge:
     @property
     def running(self) -> bool:
         return self._thread is not None and self._thread.is_alive()
+
+    @property
+    def lighting_outputs(self) -> LightingOutputs | None:
+        with self._controller_lock:
+            return self._controller
 
     def start(self) -> None:
         if self.running:
@@ -141,12 +242,14 @@ class YargBridge:
                 "Listening for YARG UDP datagrams on port %d", config.YARG_UDP_PORT
             )
 
-            controller = LightingOutputs()
+            controller = self._provided_outputs or LightingOutputs()
             with self._controller_lock:
                 self._controller = controller
-            controller.start()
+            if self._provided_outputs is None:
+                controller.start()
             self._ready.set()
             previous = None
+            first_valid_packet = True
             while not self._stop.is_set():
                 try:
                     packet, source = receiver.recvfrom(2048)
@@ -160,6 +263,15 @@ class YargBridge:
                     )
                     continue
 
+                if first_valid_packet:
+                    logging.info(
+                        "Received first valid YARG UDP datagram from %s "
+                        "(%d bytes, protocol v%d)",
+                        source,
+                        len(packet),
+                        state.version,
+                    )
+                    first_valid_packet = False
                 if config.DEBUG_LOGGING:
                     for line in describe_changes(previous, state):
                         logging.info("%s", line)
@@ -176,10 +288,10 @@ class YargBridge:
         finally:
             self._ready.clear()
             receiver.close()
-            if controller is not None:
+            if controller is not None and self._provided_outputs is None:
                 controller.close()
             with self._controller_lock:
-                self._controller = None
+                self._controller = self._provided_outputs
             logging.info("YARG-LIFX bridge stopped")
 
 

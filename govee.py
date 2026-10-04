@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import config
+from rate_limits import rate_limited
 from yarg import LightingIntent
 
 logger = logging.getLogger(__name__)
@@ -124,6 +125,8 @@ class _SentState:
 
 class GoveeController:
     def __init__(self) -> None:
+        self._all_devices: list[GoveeDevice] = []
+        self._manual_ips: set[str] = set()
         self._devices: list[GoveeDevice] = []
         self._states: dict[str, _SentState] = {}
         self._commands: queue.Queue[LightingIntent | None] = queue.Queue(maxsize=1)
@@ -137,12 +140,85 @@ class GoveeController:
     def discovered_devices(self) -> list[tuple[str, str]]:
         return [(device.name, device.ip) for device in self._devices]
 
+    @property
+    def all_discovered_devices(self) -> list[tuple[str, str]]:
+        return [(device.name, device.ip) for device in self._all_devices]
+
+    def identify(self, selector: str) -> None:
+        """Briefly flash one device and restore its last commanded state."""
+        normalized = selector.casefold()
+        for device in self._all_devices:
+            if normalized not in {
+                device.name.casefold(),
+                device.ip.casefold(),
+                device.device_id.casefold(),
+                device.sku.casefold(),
+            }:
+                continue
+            previous = self._states.get(device.identity)
+            previous_state = (
+                None
+                if previous is None
+                else (previous.power, previous.color, previous.brightness)
+            )
+            try:
+                self._send(device.ip, color_message((0, 255, 255)))
+                self._send(device.ip, brightness_message(100))
+                self._send(device.ip, power_message(True))
+                time.sleep(0.35)
+            finally:
+                if previous_state is None:
+                    self._send(device.ip, power_message(False))
+                else:
+                    power, color, brightness = previous_state
+                    if color is not None:
+                        self._send(device.ip, color_message(color))
+                    if brightness is not None:
+                        self._send(device.ip, brightness_message(brightness))
+                    if power is not None:
+                        self._send(device.ip, power_message(power))
+            return
+        raise LookupError(f"No Govee light matches {selector!r}")
+
     def start(self) -> None:
         self._discover()
         self._thread = threading.Thread(
             target=self._run, name="govee-controller", daemon=True
         )
         self._thread.start()
+
+    def scan(self) -> None:
+        self._discover()
+
+    def apply_filters(self) -> None:
+        include = {item.casefold() for item in config.GOVEE_INCLUDE_DEVICES}
+        exclude = {item.casefold() for item in config.EXCLUDE_LIGHTS}
+        devices = [
+            device
+            for device in self._all_devices
+            if not any(
+                value.casefold() in exclude
+                for value in (device.name, device.ip, device.device_id, device.sku)
+            )
+            and (
+                device.ip.casefold() in self._manual_ips
+                or not include
+                or any(
+                    value.casefold() in include
+                    for value in (device.ip, device.device_id, device.sku)
+                )
+            )
+        ]
+        previous_devices = {device.identity: device for device in self._devices}
+        previous_ids = set(previous_devices)
+        current_ids = {device.identity for device in devices}
+        for identity in previous_ids - current_ids:
+            self._states.pop(identity, None)
+        for device in devices:
+            previous = previous_devices.get(device.identity)
+            if previous is None or previous.ip != device.ip:
+                self._states.pop(device.identity, None)
+        self._devices = devices
 
     def submit(self, intent: LightingIntent) -> None:
         with self._submit_lock:
@@ -169,6 +245,34 @@ class GoveeController:
     def set_color_temperature(self, ip: str, kelvin: int) -> None:
         """Send a LAN color-temperature command to a tunable-white Govee device."""
         self._send(ip, color_temperature_message(kelvin))
+
+    def test_light_color(self, selector: str, color_name: str) -> None:
+        normalized = selector.casefold()
+        for device in self._all_devices:
+            if normalized not in {
+                device.name.casefold(),
+                device.ip.casefold(),
+                device.device_id.casefold(),
+            }:
+                continue
+            multiplier = max(0.0, min(1.0, config.BRIGHTNESS_MULTIPLIER))
+            brightness = max(1, min(100, round(multiplier * 100)))
+            self._apply_device(
+                device, True, RGB_COLORS[color_name], brightness
+            )
+            return
+        raise LookupError(f"No Govee light matches {selector!r}")
+
+    def rate_limit_key(self, selector: str) -> str:
+        normalized = selector.casefold()
+        for device in self._all_devices:
+            if normalized in {
+                device.name.casefold(),
+                device.ip.casefold(),
+                device.device_id.casefold(),
+            }:
+                return f"govee:{device.identity}".casefold()
+        raise LookupError(f"No Govee light matches {selector!r}")
 
     def close(self) -> None:
         self._stop.set()
@@ -213,27 +317,32 @@ class GoveeController:
             if listener is not None:
                 listener.close()
 
-        include = {item.casefold() for item in config.GOVEE_INCLUDE_DEVICES}
-        devices = [
-            device
-            for device in discovered.values()
-            if not include
-            or any(
-                value.casefold() in include
-                for value in (device.ip, device.device_id, device.sku)
+        manual_ips: set[str] = set()
+        for item in config.MANUAL_LIGHTS:
+            if item[0] != "govee":
+                continue
+            ip_address, name = item[2], item[1]
+            manual_ips.add(ip_address.casefold())
+            existing = next(
+                (
+                    device
+                    for device in discovered.values()
+                    if device.ip.casefold() == ip_address.casefold()
+                ),
+                None,
             )
-        ]
-        previous_devices = {device.identity: device for device in self._devices}
-        previous_ids = set(previous_devices)
-        current_ids = {device.identity for device in devices}
-        for identity in previous_ids - current_ids:
-            self._states.pop(identity, None)
-        for device in devices:
-            previous = previous_devices.get(device.identity)
-            if previous is None or previous.ip != device.ip:
-                self._states.pop(device.identity, None)
-        self._devices = devices
-        if not devices:
+            manual_device = GoveeDevice(
+                ip_address if existing is None else existing.ip,
+                ip_address if existing is None else existing.device_id,
+                "MANUAL" if existing is None else existing.sku,
+                name,
+            )
+            discovered[manual_device.identity] = manual_device
+
+        self._all_devices = list(discovered.values())
+        self._manual_ips = manual_ips
+        self.apply_filters()
+        if not self._devices:
             logger.info("Govee LAN discovery: no compatible included devices found")
 
     @staticmethod
@@ -242,22 +351,18 @@ class GoveeController:
             sender.sendto(payload, (ip, CONTROL_PORT))
 
     def _run(self) -> None:
-        next_discovery = time.monotonic() + config.LIFX_REDISCOVERY_INTERVAL + config.LIFX_REDISCOVERY_INTERVAL
         intent: LightingIntent | None = None
         strobe_on = True
         next_strobe = 0.0
         while not self._stop.is_set():
-            now = time.monotonic()
-            if now >= next_discovery:
-                self._discover()
-                if intent is not None:
-                    self._apply(intent, strobe_on)
-                next_discovery = time.monotonic() + config.LIFX_REDISCOVERY_INTERVAL
-
-            deadlines = [next_discovery]
+            deadlines: list[float] = []
             if intent is not None and intent.strobe_interval is not None:
                 deadlines.append(next_strobe)
-            timeout = max(0.0, min(deadlines) - time.monotonic())
+            timeout = (
+                max(0.0, min(deadlines) - time.monotonic())
+                if deadlines
+                else None
+            )
             try:
                 updated = self._commands.get(timeout=timeout)
             except queue.Empty:
@@ -302,21 +407,22 @@ class GoveeController:
     ) -> None:
         state = self._states.setdefault(device.identity, _SentState())
         try:
-            if not is_on:
-                if state.power is not False:
-                    self._send(device.ip, power_message(False))
-                    state.power = False
-                return
+            with rate_limited("govee", device.identity):
+                if not is_on:
+                    if state.power is not False:
+                        self._send(device.ip, power_message(False))
+                        state.power = False
+                    return
 
-            if state.color != rgb:
-                self._send(device.ip, color_message(rgb))
-                state.color = rgb
-            if state.brightness != brightness:
-                self._send(device.ip, brightness_message(brightness))
-                state.brightness = brightness
-            if state.power is not True:
-                self._send(device.ip, power_message(True))
-                state.power = True
+                if state.color != rgb:
+                    self._send(device.ip, color_message(rgb))
+                    state.color = rgb
+                if state.brightness != brightness:
+                    self._send(device.ip, brightness_message(brightness))
+                    state.brightness = brightness
+                if state.power is not True:
+                    self._send(device.ip, power_message(True))
+                    state.power = True
         except OSError as exc:
             logger.warning("Govee command failed for %s (%s): %s", device.name, device.ip, exc)
             self._states.pop(device.identity, None)

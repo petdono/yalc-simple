@@ -11,6 +11,8 @@ specifically the requirement for each zone to either be red, green, or blue.
   - Polychrome zones are not supported, whole light only.
 - A Govee light that has LAN support ([Models](https://app-h5.govee.com/user-manual/wlan-guide))
   - If the device isn't listed there, your model is either cloud-only or Bluetooth only. Neither are supported.
+- Compatible Smart Life / Tuya Wi-Fi lighting products
+  - Only devices advertised as lights with locally supported controls and a TinyTuya-recognized datapoint layout are enabled.
 
 ## Run from source
 
@@ -23,13 +25,27 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-The window lets you configure the YARG port, discovery/rediscovery intervals,
-brightness, transition time, optional included bulbs, Govee enablement and
-filtering, and event logging. Settings are saved to
+The main window provides **Settings**, **Manage Lights**, and **Devices**
+pop-outs. Settings contains the YARG port, discovery timeouts, brightness,
+transition time, optional included bulbs, Govee filtering, and event logging.
+The app scans once on launch; use **Scan lights** in Manage Lights to manually
+refresh discovered devices. Manage Lights also lets you exclude lights or
+identify one with a brief flash. Devices enables/disables LIFX, Govee, and
+Smart Life / Tuya, links a Smart Life account, and lets you add LIFX/Govee
+devices manually (both require a name and IP; LIFX also requires its MAC
+address). Settings are saved to
 `%APPDATA%\YARG-LIFX\settings.json`. Click **Start listening** after enabling
-YARG's **UDP data stream** option. Use **Test lights** to set all included
-lights to a chosen color. Settings are locked while the listener is running;
-stop it before editing, then restart to apply changes.
+YARG's **UDP data stream** option. Use **Test lights** to set included lights
+to a chosen color. **Rate limit tester** opens a separate window to select a
+discovered light, preview a changing color sequence as commands are sent, and
+set the selected light's maximum updates per second. Manage Lights also has a
+per-light rate field. A blank Tuya field uses the default Tuya limit from
+Settings; blank LIFX/Govee fields mean no rate limit. Explicit per-light limits
+are supported for all providers. Stop YARG listening before running the rate
+test. Activity logs confirm when the first valid YARG datagram arrives and
+report malformed packets. Settings and provider
+controls are locked while the listener is running; stop it before changing
+them, then restart to apply the changes.
 
 ## Govee LAN Control setup
 
@@ -41,10 +57,46 @@ to discovery. Make sure Windows Firewall allows YARG-LIFX on your private LAN.
 The app sends the documented discovery JSON to multicast
 `239.255.255.250:4001`, listens for responses on UDP `4002`, and sends commands
 to each discovered device at UDP `4003`. It controls every discovered Govee
-device by default. The Govee checkbox, discovery timeout, and optional
-comma-separated IP/device-ID/SKU filter are available in the configuration
-window. No API key, cloud connection, MQTT, or additional Govee Python package
-is used.
+device by default. The **Devices** pop-out enables or disables Govee; the
+**Settings** pop-out contains the discovery timeout and optional
+comma-separated IP/device-ID/SKU filter. No API key, cloud connection, MQTT,
+or additional Govee Python package is used.
+
+## Smart Life / Tuya setup
+
+1. Start YARG-LIFX and open **Devices** → **Connect / refresh**, or run
+   `python main.py --tuya-login` from a terminal.
+2. Enter the Smart Life **User Code** from **Me → Settings → Account and
+   Security → User Code**.
+3. Scan the displayed QR code in Smart Life (**+ → Scan**) and approve the
+   authorization.
+4. The app retrieves device metadata and local keys for devices the account
+   advertises as locally controllable lights. Non-light products and lights
+   without a verified TinyTuya datapoint mapping are skipped.
+5. The app stores the supported device credentials in
+   `%APPDATA%\YARG-LIFX\tuya_devices.json` on Windows. This file contains
+   sensitive local keys; it is kept outside the repository and should not be
+   shared. Tuya credentials are separate from the normal settings file.
+
+The QR authorization and device-credential retrieval use the Tuya
+[Device Sharing SDK](https://github.com/tuya/tuya-device-sharing-sdk); the
+Smart Life user-code/QR flow is also documented by
+[tuya-local-key](https://github.com/vineetchoudhary/tuya-local-key). No Tuya
+developer project or manually extracted local key is required.
+
+**Internet/Tuya cloud is used during QR onboarding or an explicit credential
+refresh only. Normal startup discovers cached devices on the LAN, and YARG
+lighting commands are sent locally with TinyTuya; the gameplay path does not
+use the Tuya cloud.** TinyTuya detects and validates the local bulb datapoint
+layout before the app enables control. Unsupported layouts are skipped rather
+than receiving guessed datapoints. Tuya commands run on a worker, duplicate
+states are cached, and **Settings** lets you cap updates per second (default
+10).
+
+Changing, resetting, or re-pairing a Tuya device may invalidate its local key.
+Use **Devices → Connect / refresh** or `python main.py --tuya-refresh` to
+reauthorize and replace the cached device data. To remove only the Tuya data,
+run `python main.py --tuya-logout`.
 
 Allow the app through Windows Firewall on your private LAN if UDP or LIFX
 discovery is blocked.
@@ -60,7 +112,7 @@ python -m pip install -r requirements-build.txt
 .\build.ps1
 ```
 
-The one-file, windowed executable is `dist\YARG-LIFX.exe`. Copy it anywhere and
+The one-file, windowed executable is `dist\YALCS-0.2.0.exe`. Copy it anywhere and
 run it; per-user settings remain in AppData. The executable has no console
 window. Windows may ask you to allow local network access the first time it
 runs.
@@ -70,6 +122,8 @@ For command-line use from source:
 ```powershell
 python main.py --test       # discover lights and set them blue once
 python main.py --headless   # listen without opening the window; Ctrl+C stops
+python main.py --tuya-login # link or refresh Smart Life credentials
+python main.py --tuya-logout # delete only cached Smart Life credentials
 ```
 
 ## Lighting
@@ -77,10 +131,10 @@ python main.py --headless   # listen without opening the window; Ctrl+C stops
 YARG sends enum values for the current lighting cue, section, and strobe state;
 it does not send RGB values. The app maps Verse to blue, Chorus to yellow, and
 other cue families to practical colors, turns lights off for blackout cues, and
-uses timed on/off pulses for strobe. Both brands receive the same internal
-lighting intent. LIFX uses its color transition command; Govee uses its local
-`colorwc`, `brightness`, and `turn` messages (the YARG events provide colors,
-not a color temperature). Commands run outside the UDP receiver, with cached
+uses timed on/off pulses for strobe. Each enabled provider receives the same
+internal lighting intent. LIFX uses its color transition command; Govee uses
+its local `colorwc`, `brightness`, and `turn` messages; Tuya uses TinyTuya's
+local bulb interface. Commands run outside the UDP receiver, with cached
 per-device state to avoid identical commands.
 
 ## Protocol references

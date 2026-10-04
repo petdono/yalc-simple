@@ -1,2 +1,5 @@
 lifxlan==1.2.9
-
+tinytuya>=1.17,<2
+psutil>=5.9,<8
+tuya-device-sharing-sdk>=0.2.15,<0.3
+qrcode>=8,<9

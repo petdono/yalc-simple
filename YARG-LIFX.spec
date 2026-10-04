@@ -3,6 +3,10 @@ from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = []
 hiddenimports += collect_submodules('bitstring')
+hiddenimports += collect_submodules('tinytuya')
+hiddenimports += collect_submodules('psutil')
+hiddenimports += collect_submodules('tuya_sharing')
+hiddenimports += collect_submodules('qrcode')
 
 
 a = Analysis(
@@ -26,7 +30,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='YARG-LIFX',
+    name='YALCS-0.2.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

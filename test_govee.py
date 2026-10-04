@@ -56,6 +56,16 @@ class FakeDiscoverySocket:
 
 
 class GoveeLanTests(unittest.TestCase):
+    def test_rate_test_sends_color_only_to_selected_device(self) -> None:
+        controller = GoveeController()
+        device = GoveeDevice("192.168.1.10", "id-one", "H6008", "Desk strip")
+        other = GoveeDevice("192.168.1.11", "id-two", "H6008", "Shelf strip")
+        controller._all_devices = [device, other]
+        with patch.object(controller, "_apply_device") as apply_device:
+            controller.test_light_color("192.168.1.10", "PURPLE")
+        apply_device.assert_called_once_with(device, True, (255, 0, 255), 80)
+        controller.close()
+
     def test_protocol_payloads_match_lan_command_shapes(self) -> None:
         self.assertEqual(
             json.loads(scan_message()),
@@ -157,13 +167,53 @@ class GoveeLanTests(unittest.TestCase):
         self.assertEqual(CONTROL_PORT, 4003)
         controller.close()
 
-    def test_start_scans_once_then_waits_for_rediscovery_interval(self) -> None:
+    def test_start_scans_once_and_commands_do_not_trigger_discovery(self) -> None:
         controller = GoveeController()
         with patch.object(controller, "_discover") as discover:
             controller.start()
+            controller.submit(LightingIntent("RED"))
             time.sleep(0.05)
             controller.close()
         self.assertEqual(discover.call_count, 1)
+
+    def test_manual_device_bypasses_allow_list_but_respects_exclusions(self) -> None:
+        manual_light = ("govee", "Manual shelf", "192.168.1.60", "")
+        fake_socket = FakeDiscoverySocket(b"")
+        with (
+            patch.object(config, "GOVEE_DISCOVERY_TIMEOUT", 0.03),
+            patch.object(config, "GOVEE_INCLUDE_DEVICES", ("another-device",)),
+            patch.object(config, "EXCLUDE_LIGHTS", ()),
+            patch.object(config, "MANUAL_LIGHTS", (manual_light,)),
+            patch("govee.socket.socket", return_value=fake_socket),
+        ):
+            controller = GoveeController()
+            controller._discover()
+            self.assertEqual(
+                controller.discovered_devices, [("Manual shelf", "192.168.1.60")]
+            )
+            controller.close()
+
+        with (
+            patch.object(config, "GOVEE_DISCOVERY_TIMEOUT", 0.03),
+            patch.object(config, "GOVEE_INCLUDE_DEVICES", ()),
+            patch.object(config, "EXCLUDE_LIGHTS", ("192.168.1.60",)),
+            patch.object(config, "MANUAL_LIGHTS", (manual_light,)),
+            patch("govee.socket.socket", return_value=FakeDiscoverySocket(b"")),
+        ):
+            controller = GoveeController()
+            controller._discover()
+            self.assertEqual(controller.discovered_devices, [])
+            self.assertEqual(
+                controller.all_discovered_devices,
+                [("Manual shelf", "192.168.1.60")],
+            )
+            with patch.object(config, "EXCLUDE_LIGHTS", ()):
+                controller.apply_filters()
+            self.assertEqual(
+                controller.discovered_devices,
+                [("Manual shelf", "192.168.1.60")],
+            )
+            controller.close()
 
 
 if __name__ == "__main__":
