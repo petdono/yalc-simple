@@ -1,8 +1,8 @@
 # Yet Another Lighting Controller, Simplified
 ![Banner](resource-images/image.png)
 ## What is it?
-datastream and controls LIFX & Govee lights using the LAN protocol. The app is
-entirely made with AI but has been tested on all my LIFX lights to
+controls smart lights based on what's happening in YARG. The app is
+entirely made with AI but has been tested on all my LIFX & SmartLife lights to
 work pretty well, as well as being tested with a Govee UDP emulator script. 
 This app is meant to replace YALCY since its LIFX support is seriously lacking,
 specifically the requirement for each zone to either be red, green, or blue.
@@ -15,6 +15,9 @@ specifically the requirement for each zone to either be red, green, or blue.
   - If the device isn't listed there, your model is either cloud-only or Bluetooth only. Neither are supported.
 - Compatible Smart Life / Tuya Wi-Fi lighting products
   - Only devices advertised as lights with locally supported controls and a TinyTuya-recognized datapoint layout are enabled.
+  - Your device must be connected through SmartLife, not Tuya.
+  - Some devices may need their rate limits adjusted.
+  - Only devices with protocol versions 3.1-3.5 will work. Tested with OhLux bulbs.
 
 ## Run from source
 
