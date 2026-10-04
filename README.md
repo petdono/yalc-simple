@@ -1,4 +1,6 @@
 # Yet Another Lighting Controller, Simplified
+![Banner](resource-images/image.png)
+## What is it?
 datastream and controls LIFX & Govee lights using the LAN protocol. The app is
 entirely made with AI but has been tested on all my LIFX lights to
 work pretty well, as well as being tested with a Govee UDP emulator script. 
