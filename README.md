@@ -1,8 +1,9 @@
 # YARG-LIFX
-
-A small Windows desktop app that listens for YARG's local UDP lighting
-datastream and controls LIFX and Govee lights using their LAN protocols. No
-cloud account, token, web server, or database is involved.
+datastream and controls LIFX & Govee lights using the LAN protocol. The app is
+entirely made with AI but has been tested on all my LIFX lights to
+work pretty well, as well as being tested with a Govee UDP emulator script. 
+This app is meant to replace YALCY since its LIFX support is seriously lacking,
+specifically the requirement for each zone to either be red, green, or blue.
 
 ## Run from source
 
