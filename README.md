@@ -148,9 +148,33 @@ sudo apt install -y python3 python3-venv python3-tk
 bash build_linux.sh
 ```
 
+Tkinter must be installed on the Linux build machine so PyInstaller can bundle
+the GUI. If a built app exits with `ModuleNotFoundError: No module named
+'tkinter'`, install `python3-tk` on the build machine and run
+`bash build_linux.sh` again; use the newly built executable.
+
 The script creates `.venv-linux`, installs the build requirements, and writes
-the standalone GUI executable to `dist/YALCS-0.2.1`. Copy it to a Linux system
-with compatible system libraries and run it. Settings and cached Smart Life
+the standalone GUI executable to `dist/YALCS-0.2.1`, marking it executable.
+Launch it from a terminal with:
+
+```bash
+./dist/YALCS-0.2.1
+```
+
+Do not use `sudo`; it is a desktop app and should run as your normal user. If
+you downloaded or copied the file and see `Permission denied`, grant execute
+permission and launch it using its path:
+
+```bash
+chmod +x ./YALCS-0.2.1
+./YALCS-0.2.1
+```
+
+If the file is on a `noexec` mount (common with Windows/OneDrive folders under
+WSL), copy it to your Linux home directory first, then run `chmod +x` and
+launch it there. If you see `command not found`, include `./` when running it
+from the current directory, or provide the full path. Copy the executable to a
+Linux system with compatible system libraries. Settings and cached Smart Life
 local credentials use `$XDG_CONFIG_HOME/YARG-LIFX` when configured, otherwise
 `~/.config/YARG-LIFX`. Allow local UDP traffic in the Linux firewall if YARG
 datagrams or light discovery are blocked.

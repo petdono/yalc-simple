@@ -14,6 +14,11 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
     "$PYTHON" -m venv "$VENV_DIR"
 fi
 
+if ! "$VENV_DIR/bin/python" -c 'import tkinter' >/dev/null 2>&1; then
+    echo "Tkinter is missing from the build interpreter; install python3-tk for that Python, then rerun this script." >&2
+    exit 1
+fi
+
 "$VENV_DIR/bin/python" -m pip install -r "$ROOT_DIR/requirements-build.txt"
 
 BUILD_TMP="$(mktemp -d "${TMPDIR:-/tmp}/yalcs-linux-build.XXXXXX")"
@@ -35,4 +40,5 @@ trap 'rm -rf "$BUILD_TMP"' EXIT
     --name YALCS-0.2.1 \
     "$ROOT_DIR/main.py"
 
+chmod +x "$ROOT_DIR/dist/YALCS-0.2.1"
 echo "Executable created: $ROOT_DIR/dist/YALCS-0.2.1"
