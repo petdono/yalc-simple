@@ -9,12 +9,13 @@ import logging
 import os
 import queue
 import socket
+import sys
 import tempfile
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 import config
 from rate_limits import rate_limited
@@ -25,7 +26,29 @@ logger = logging.getLogger(__name__)
 CLIENT_ID = "HA_3y9q4ak7g4ephrvke"
 SCHEMA = "haauthorize"
 QR_SCHEME = "smartlife"
-STATE_DIRECTORY = Path(os.environ.get("APPDATA") or Path.home()) / "YARG-LIFX"
+
+
+def _state_directory(
+    platform: str = sys.platform,
+    environment: Mapping[str, str] | None = None,
+    home: Path | None = None,
+) -> Path:
+    env = os.environ if environment is None else environment
+    home_directory = Path.home() if home is None else home
+    if platform == "win32":
+        root = Path(env.get("APPDATA") or home_directory)
+    else:
+        configured = env.get("XDG_CONFIG_HOME")
+        config_home = Path(configured) if configured else None
+        root = (
+            config_home
+            if config_home is not None and config_home.is_absolute()
+            else home_directory / ".config"
+        )
+    return root / "YARG-LIFX"
+
+
+STATE_DIRECTORY = _state_directory()
 STATE_FILE = STATE_DIRECTORY / "tuya_devices.json"
 SUPPORTED_PROTOCOLS = {"3.1", "3.2", "3.3", "3.4", "3.5"}
 QR_LOGIN_TIMEOUT = 180
@@ -435,6 +458,7 @@ def _scan_lan(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         scantime=3,
         poll=False,
         forcescan=[str(network)],
+        discover=False,
         tuyadevices=devices,
         wantids=[record["id"] for record in records],
         assume_yes=True,
@@ -613,7 +637,10 @@ class TuyaController:
         try:
             lan_devices = _scan_lan(records)
         except Exception as exc:
-            logger.warning("TinyTuya LAN discovery failed (%s)", type(exc).__name__)
+            logger.exception(
+                "TinyTuya LAN discovery failed (%s); cached Tuya lights were not loaded",
+                type(exc).__name__,
+            )
             self._all_lights = []
             self._lights = []
             return

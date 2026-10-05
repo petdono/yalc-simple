@@ -30,7 +30,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='YALCS-0.2.0',
+    name='YALCS-0.2.1',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

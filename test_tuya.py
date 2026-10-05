@@ -73,6 +73,33 @@ def saved_light() -> dict[str, object]:
 
 
 class TuyaCapabilityTests(unittest.TestCase):
+    def test_state_directory_uses_platform_standard_config_location(self) -> None:
+        home = Path.home()
+        self.assertEqual(
+            tuya._state_directory(
+                "linux",
+                {"XDG_CONFIG_HOME": str(home / "xdg")},
+                home,
+            ),
+            home / "xdg" / "YARG-LIFX",
+        )
+        self.assertEqual(
+            tuya._state_directory(
+                "linux",
+                {"XDG_CONFIG_HOME": "relative-config"},
+                home,
+            ),
+            home / ".config" / "YARG-LIFX",
+        )
+        self.assertEqual(
+            tuya._state_directory(
+                "win32",
+                {"APPDATA": str(home / "Roaming")},
+                home,
+            ),
+            home / "Roaming" / "YARG-LIFX",
+        )
+
     def test_category_and_advertised_local_dp_mapping_are_required(self) -> None:
         functions = {
             "switch_led": {},
@@ -293,6 +320,7 @@ class TuyaControllerTests(unittest.TestCase):
         self.assertEqual(self.scan_kwargs["wantids"], ["device-id"])
         self.assertEqual(self.scan_kwargs["forcescan"], ["192.168.1.0/24"])
         self.assertFalse(self.scan_kwargs["poll"])
+        self.assertFalse(self.scan_kwargs["discover"])
         self.assertTrue(self.scan_kwargs["assume_yes"])
 
     def _capture_scan_kwargs(self, kwargs: dict[str, object]) -> dict[str, object]:

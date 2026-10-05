@@ -18,7 +18,18 @@ specifically the requirement for each zone to either be red, green, or blue.
 
 ## Run from source
 
-Install Python 3.10 or newer. In PowerShell, from this folder:
+Install Python 3.10 or newer. On Debian/Ubuntu, install Tkinter if your Python
+installation does not include it (`sudo apt install python3-tk`). From this
+folder, create and activate a virtual environment:
+
+```bash
+python3 -m venv .venv-linux
+source .venv-linux/bin/activate
+python -m pip install -r requirements.txt
+python main.py
+```
+
+On Windows, use PowerShell:
 
 ```powershell
 py -m venv .venv-yarg-lifx
@@ -36,7 +47,8 @@ identify one with a brief flash. Devices enables/disables LIFX, Govee, and
 Smart Life / Tuya, links a Smart Life account, and lets you add LIFX/Govee
 devices manually (both require a name and IP; LIFX also requires its MAC
 address). Settings are saved to
-`%APPDATA%\YARG-LIFX\settings.json`. Click **Start listening** after enabling
+`%APPDATA%\YARG-LIFX\settings.json` on Windows, or
+`${XDG_CONFIG_HOME:-~/.config}/YARG-LIFX/settings.json` on Linux. Click **Start listening** after enabling
 YARG's **UDP data stream** option. Use **Test lights** to set included lights
 to a chosen color. **Rate limit tester** opens a separate window to select a
 discovered light, preview a changing color sequence as commands are sent, and
@@ -54,7 +66,8 @@ them, then restart to apply the changes.
 Enable **LAN Control** for each compatible Wi-Fi device in the Govee Home app
 under **Devices → (device) → Settings/More Settings → LAN Control**. Govee
 devices without LAN API support or with that setting disabled will not respond
-to discovery. Make sure Windows Firewall allows YARG-LIFX on your private LAN.
+to discovery. Allow YARG-LIFX through your firewall for local network traffic
+if discovery or UDP reception is blocked.
 
 The app sends the documented discovery JSON to multicast
 `239.255.255.250:4001`, listens for responses on UDP `4002`, and sends commands
@@ -76,7 +89,8 @@ or additional Govee Python package is used.
    advertises as locally controllable lights. Non-light products and lights
    without a verified TinyTuya datapoint mapping are skipped.
 5. The app stores the supported device credentials in
-   `%APPDATA%\YARG-LIFX\tuya_devices.json` on Windows. This file contains
+`%APPDATA%\YARG-LIFX\tuya_devices.json` on Windows, or
+`${XDG_CONFIG_HOME:-~/.config}/YARG-LIFX/tuya_devices.json` on Linux. This file contains
    sensitive local keys; it is kept outside the repository and should not be
    shared. Tuya credentials are separate from the normal settings file.
 
@@ -100,8 +114,8 @@ Use **Devices → Connect / refresh** or `python main.py --tuya-refresh` to
 reauthorize and replace the cached device data. To remove only the Tuya data,
 run `python main.py --tuya-logout`.
 
-Allow the app through Windows Firewall on your private LAN if UDP or LIFX
-discovery is blocked.
+Allow the app through your operating system's firewall on your private LAN if
+UDP or LIFX discovery is blocked.
 
 ## Build a standalone executable
 
@@ -114,10 +128,29 @@ python -m pip install -r requirements-build.txt
 .\build.ps1
 ```
 
-The one-file, windowed executable is `dist\YALCS-0.2.0.exe`. Copy it anywhere and
+The one-file, windowed executable is `dist\YALCS-0.2.1.exe`. Copy it anywhere and
 run it; per-user settings remain in AppData. The executable has no console
 window. Windows may ask you to allow local network access the first time it
 runs.
+
+### Linux executable
+
+PyInstaller builds for the operating system it is running on; build the Linux
+binary on Linux, not on Windows. On Debian/Ubuntu, install Python, venv, and
+Tkinter first:
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-venv python3-tk
+bash build_linux.sh
+```
+
+The script creates `.venv-linux`, installs the build requirements, and writes
+the standalone GUI executable to `dist/YALCS-0.2.1`. Copy it to a Linux system
+with compatible system libraries and run it. Settings and cached Smart Life
+local credentials use `$XDG_CONFIG_HOME/YARG-LIFX` when configured, otherwise
+`~/.config/YARG-LIFX`. Allow local UDP traffic in the Linux firewall if YARG
+datagrams or light discovery are blocked.
 
 For command-line use from source:
 
