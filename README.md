@@ -112,6 +112,15 @@ than receiving guessed datapoints. Tuya commands run on a worker, duplicate
 states are cached, and **Settings** lets you cap updates per second (default
 10).
 
+The Tuya scan combines UDP discovery with a credential-assisted IP scan of
+the active IPv4 subnet. The log reports which subnet was scanned and how many
+responses it received. If saved lights are reported as not reachable, confirm
+the computer and lights are on the same non-guest LAN, client/AP isolation is
+off, and the firewall allows local Tuya UDP discovery (ports 6666, 6667, and
+7000) and connections to devices on TCP port 6668. WSL2 NAT commonly does not
+forward LAN broadcasts; use the Windows app or run the Linux app on a native
+Linux host when testing LAN discovery.
+
 Changing, resetting, or re-pairing a Tuya device may invalidate its local key.
 Use **Devices → Connect / refresh** or `python main.py --tuya-refresh` to
 reauthorize and replace the cached device data. To remove only the Tuya data,
@@ -136,48 +145,99 @@ run it; per-user settings remain in AppData. The executable has no console
 window. Windows may ask you to allow local network access the first time it
 runs.
 
-### Linux executable
+### Linux AppImage
 
-PyInstaller builds for the operating system it is running on; build the Linux
-binary on Linux, not on Windows. On Debian/Ubuntu, install Python, venv, and
-Tkinter first:
+Linux releases now use an AppImage with a normal directory bundle inside it.
+Python, Tcl/Tk and Python dependencies are included; users do not need to
+install Python or Tkinter. Keep the AppImage in a permanent folder such as
+`~/Applications`, make it executable, and run it:
 
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-venv python3-tk
+chmod +x YALCS-0.2.2-x86_64.AppImage
+./YALCS-0.2.2-x86_64.AppImage
+```
+
+Use the package matching your CPU (`x86_64` or `aarch64`). Run as your normal
+desktop user. Replacing the AppImage upgrades the application while preserving
+settings and Smart Life credentials in `~/.config/YARG-LIFX` (or the absolute
+`$XDG_CONFIG_HOME/YARG-LIFX` path). Existing settings from 0.2.1 are reused.
+Headless and test modes now load those same saved settings.
+
+If FUSE is unavailable, run without mounting:
+
+```bash
+./YALCS-0.2.2-x86_64.AppImage --appimage-extract-and-run
+```
+
+A folder package is also produced for systems where AppImages are inconvenient:
+
+```bash
+tar -xzf YALCS-0.2.2-linux-x86_64.tar.gz
+./YALCS.AppDir/AppRun
+```
+
+Keep the entire `YALCS.AppDir` together; its launcher works from any directory,
+including paths with spaces. Both formats include a desktop entry and icon for
+desktop integration. If the download is on a `noexec` filesystem, move it to
+an executable filesystem before launching it.
+
+To diagnose a package without contacting or changing lights:
+
+```bash
+./YALCS-0.2.2-x86_64.AppImage --self-check
+./YALCS-0.2.2-x86_64.AppImage --self-check --headless
+```
+
+The first command also creates and closes a Tk window to check the GUI bundle.
+The second checks dependencies and Tcl without a display. On Wayland desktops,
+Tk uses XWayland; a working `DISPLAY` is required for the GUI. `--headless`
+works without a graphical session and handles SIGTERM for session/service
+shutdown. For services, use the folder package's AppRun: the AppImage
+extract-and-run supervisor does not forward SIGTERM to its child. All existing
+CLI options also work with AppRun or the AppImage.
+
+### Build Linux packages
+
+Build on Linux or WSL, using the architecture you intend to distribute.
+Ubuntu 22.04 is the current CI baseline (glibc 2.35); building on a newer
+distribution can require newer system libraries on users' computers.
+
+```bash
+sudo apt install python3 python3-venv python3-tk curl desktop-file-utils
 bash build_linux.sh
 ```
 
-Tkinter must be installed on the Linux build machine so PyInstaller can bundle
-the GUI. If a built app exits with `ModuleNotFoundError: No module named
-'tkinter'`, install `python3-tk` on the build machine and run
-`bash build_linux.sh` again; use the newly built executable.
+The script runs the unit tests, builds an `onedir` payload with PyInstaller,
+assembles an AppDir with its launcher/desktop entry/icon, and packages:
 
-The script creates `.venv-linux`, installs the build requirements, and writes
-the standalone GUI executable to `dist/YALCS-0.2.1`, marking it executable.
-Launch it from a terminal with:
+- `dist/YALCS-0.2.2-x86_64.AppImage`
+- `dist/YALCS-0.2.2-linux-x86_64.tar.gz`
+- SHA-256 checksum files for both
+
+The build environment and temporary build tree live under
+`${XDG_CACHE_HOME:-~/.cache}/yalcs`, avoiding Windows/OneDrive filesystem
+issues in WSL. appimagetool 1.9.1 is downloaded from its official release and
+verified against a pinned SHA-256 checksum. Its runtime may also be downloaded
+during packaging. Building does not require FUSE.
+
+Overrides: `PYTHON`, `VENV_DIR`, `DIST_DIR`, `VERSION`, `APPIMAGETOOL`
+(path to a custom appimagetool AppImage), and `APPIMAGE_RUNTIME` (path to a
+custom runtime). Set `APPDIR_ONLY=1` to build only the folder archive.
+
+The build checks imports and bundled Tcl before producing release artifacts.
+The GitHub Actions Linux workflow additionally tests Tk under Xvfb and runs the
+packaged UDP bridge against a loopback Govee emulator:
 
 ```bash
-./dist/YALCS-0.2.1
+python3 packaging/linux/check_package.py dist/YALCS-0.2.2-x86_64.AppImage
 ```
 
-Do not use `sudo`; it is a desktop app and should run as your normal user. If
-you downloaded or copied the file and see `Permission denied`, grant execute
-permission and launch it using its path:
-
-```bash
-chmod +x ./YALCS-0.2.1
-./YALCS-0.2.1
-```
-
-If the file is on a `noexec` mount (common with Windows/OneDrive folders under
-WSL), copy it to your Linux home directory first, then run `chmod +x` and
-launch it there. If you see `command not found`, include `./` when running it
-from the current directory, or provide the full path. Copy the executable to a
-Linux system with compatible system libraries. Settings and cached Smart Life
-local credentials use `$XDG_CONFIG_HOME/YARG-LIFX` when configured, otherwise
-`~/.config/YARG-LIFX`. Allow local UDP traffic in the Linux firewall if YARG
-datagrams or light discovery are blocked.
+Add `--headless-only` to that check on a machine without a display, or `--mounted`
+to additionally test normal FUSE launch. Tests use
+temporary settings and never control physical bulbs. WSL is suitable for
+packaging and these tests, but WSL2 NAT does not reliably forward discovery
+broadcasts from physical lights. Test real devices on a native Linux LAN host
+or use the Windows application.
 
 For command-line use from source:
 

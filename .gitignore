@@ -3,3 +3,6 @@ tuya_credentials.json
 tuya_session.json
 .tuya/
 .venv-linux/
+dist/*.AppImage
+dist/*-linux-*.tar.gz
+dist/*.sha256

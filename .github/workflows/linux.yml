@@ -1,0 +1,30 @@
+name: Linux AppImage
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    # Build against an older glibc; binaries also run on newer distributions.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux build tools
+        run: sudo apt-get update && sudo apt-get install -y python3-venv python3-tk curl desktop-file-utils xvfb
+      - name: Build and test
+        run: xvfb-run -a bash build_linux.sh
+      - name: Verify packaged GUI and UDP bridge
+        run: |
+          xvfb-run -a python3 packaging/linux/check_package.py dist/YALCS-0.2.2-x86_64.AppImage
+          xvfb-run -a python3 packaging/linux/check_package.py dist/YALCS-0.2.2-linux-x86_64.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: YALCS-linux-x86_64
+          path: |
+            dist/*.AppImage
+            dist/*-linux-*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error

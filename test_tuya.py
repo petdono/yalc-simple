@@ -320,7 +320,7 @@ class TuyaControllerTests(unittest.TestCase):
         self.assertEqual(self.scan_kwargs["wantids"], ["device-id"])
         self.assertEqual(self.scan_kwargs["forcescan"], ["192.168.1.0/24"])
         self.assertFalse(self.scan_kwargs["poll"])
-        self.assertFalse(self.scan_kwargs["discover"])
+        self.assertTrue(self.scan_kwargs["discover"])
         self.assertTrue(self.scan_kwargs["assume_yes"])
 
     def _capture_scan_kwargs(self, kwargs: dict[str, object]) -> dict[str, object]:

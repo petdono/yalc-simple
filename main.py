@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import signal
 import time
 
 import config
 from runtime import YargBridge, run_test
+from settings import _load_settings
 from tuya import TuyaSetupError, connect_account, logout, print_qr
 
 
@@ -24,6 +26,10 @@ def main() -> int:
         "--headless",
         action="store_true",
         help="run without opening the configuration window",
+    )
+    parser.add_argument(
+        "--self-check", action="store_true",
+        help="check bundled dependencies and Tcl/Tk, then exit (add --headless for no display)",
     )
     tuya_actions = parser.add_mutually_exclusive_group()
     tuya_actions.add_argument(
@@ -49,6 +55,9 @@ def main() -> int:
     if args.tuya_user_code and args.tuya_action != "login":
         parser.error("--tuya-user-code requires --tuya-login or --tuya-refresh")
 
+    if args.self_check:
+        return self_check(headless=args.headless)
+    _load_settings()
     logging.basicConfig(
         level=logging.DEBUG if config.DEBUG_LOGGING else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
@@ -89,6 +98,8 @@ def main() -> int:
         return run_test()
     if args.headless:
         bridge = YargBridge()
+        # Desktop/session managers and systemd stop Linux processes with SIGTERM.
+        previous_handler = signal.signal(signal.SIGTERM, lambda *_: bridge.stop())
         bridge.start()
         try:
             while bridge.running:
@@ -97,12 +108,38 @@ def main() -> int:
             logging.info("Shutting down")
         finally:
             bridge.stop()
+            signal.signal(signal.SIGTERM, previous_handler)
         return 0
 
     from gui import run_gui
 
     run_gui()
     return 0
+
+
+def self_check(headless: bool = False) -> int:
+    """Validate the actual installed payload without discovering or changing lights."""
+    try:
+        import importlib
+        import tkinter as tk
+
+        for module in ("lifxlan", "tinytuya", "psutil", "tuya_sharing", "qrcode", "certifi", "gui"):
+            importlib.import_module(module)
+        interpreter = tk.Tcl()
+        print(f"Tcl {interpreter.call('info', 'patchlevel')}: OK")
+        if not headless:
+            root = tk.Tk(className="yalcs")
+            try:
+                root.withdraw()
+                root.update()
+                print(f"Tk {root.call('package', 'require', 'Tk')}: OK")
+            finally:
+                root.destroy()
+        print("YALCS dependencies: OK")
+        return 0
+    except Exception as exc:
+        print(f"YALCS self-check failed: {exc}")
+        return 1
 
 
 if __name__ == "__main__":

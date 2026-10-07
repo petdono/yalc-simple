@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=YALC Simplified
+Comment=Control smart lights from YARG
+Exec=AppRun
+Icon=yalcs
+Terminal=false
+Categories=Game;
+StartupWMClass=yalcs

@@ -454,17 +454,23 @@ def _scan_lan(records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     if network is None:
         raise RuntimeError("Could not determine the active local IPv4 network")
 
+    logger.info(
+        "Scanning Smart Life / Tuya network %s with UDP discovery and "
+        "credential-assisted IP probing",
+        network,
+    )
     results = scanner.devices(
         scantime=3,
         poll=False,
         forcescan=[str(network)],
-        discover=False,
+        discover=True,
         tuyadevices=devices,
         wantids=[record["id"] for record in records],
         assume_yes=True,
     )
     if not isinstance(results, dict):
         raise RuntimeError("TinyTuya returned an invalid LAN scan result")
+    logger.info("Smart Life / Tuya LAN scan received %d device response(s)", len(results))
     return results
 
 
